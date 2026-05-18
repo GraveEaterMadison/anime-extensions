@@ -241,12 +241,13 @@ class JavGuru :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
-        val iframeUrls = document.select("script")
-            .flatMap { IFRAME_B64_REGEX.findAll(it.html()).toList() }
+        val iframeData = document.selectFirst("script:containsData(iframe_url)")?.html()
+            ?: return emptyList()
+
+        val iframeUrls = IFRAME_B64_REGEX.findAll(iframeData)
             .map { it.groupValues[1] }
             .map { Base64.decode(it, Base64.DEFAULT).let(::String) }
-            .filter { it.startsWith("http") }
-            .distinct()
+            .toList()
 
         return iframeUrls
             .mapNotNull(::resolveHosterUrl)
@@ -254,42 +255,26 @@ class JavGuru :
     }
 
     private fun resolveHosterUrl(iframeUrl: String): String? {
-        val iframeResponse = client.newCall(GET(iframeUrl, headers)).execute()
+        val parsed = iframeUrl.toHttpUrlOrNull() ?: return null
+        val paramName = parsed.queryParameterNames.firstOrNull() ?: return null
+        val paramValue = parsed.queryParameter(paramName) ?: return null
+        val reversed = paramValue.reversed()
 
-        if (iframeResponse.isSuccessful.not()) {
-            iframeResponse.close()
-            return null
-        }
-
-        val iframeDocument = iframeResponse.asJsoup()
-
-        val script = iframeDocument.selectFirst("script:containsData(start_player)")
-            ?.html() ?: return null
-
-        val olid = IFRAME_OLID_REGEX.find(script)?.groupValues?.get(1)?.reversed()
-            ?: return null
-
-        val srcUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
-            ?.toHttpUrlOrNull() ?: return null
-        val paramName = srcUrl.queryParameterNames.firstOrNull() ?: return null
-        val olidUrl = srcUrl.newBuilder()
-            .setQueryParameter(paramName, olid)
-            .build()
-            .toString()
+        val redirectUrl = "$baseUrl/search/?tr=$reversed"
 
         val newHeaders = headersBuilder()
             .set("Referer", iframeUrl)
             .build()
 
-        val redirectUrl = noRedirectClient.newCall(GET(olidUrl, newHeaders))
+        val location = noRedirectClient.newCall(GET(redirectUrl, newHeaders))
             .execute().use { it.header("location") }
             ?: return null
 
-        if (redirectUrl.toHttpUrlOrNull() == null) {
+        if (location.toHttpUrlOrNull() == null) {
             return null
         }
 
-        return redirectUrl
+        return location
     }
 
     private val streamWishExtractor by lazy {
@@ -379,10 +364,7 @@ class JavGuru :
     companion object {
         const val PREFIX_ID = "id:"
 
-        private val IFRAME_B64_REGEX = Regex("""['"]((aHR0cHM6|aHR0cDo)[A-Za-z0-9+/=]{10,})['"]""")
-        private val IFRAME_OLID_REGEX = Regex("""var OLID = '([^']+)'""")
-        private val IFRAME_OLID_URL = Regex("""realSrc *= *'([^']+)'""")
-
+        private val IFRAME_B64_REGEX = Regex(""""iframe_url":"([^"]+)"""")
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
@@ -391,5 +373,5 @@ class JavGuru :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-    }
-    
+                                             }
+                                             
