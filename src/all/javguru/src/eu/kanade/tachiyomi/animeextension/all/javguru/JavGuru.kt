@@ -271,7 +271,11 @@ class JavGuru :
             ?: return null
 
         val olidUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
-            ?.substringBeforeLast("=")?.let { "$it=$olid" }
+            ?.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.setQueryParameter("td", olid)
+            ?.build()
+            ?.toString()
             ?: return null
 
         val newHeaders = headersBuilder()
@@ -376,7 +380,7 @@ class JavGuru :
     companion object {
         const val PREFIX_ID = "id:"
 
-        private val IFRAME_B64_REGEX = Regex(""""iframe_url":"([^"]+)"""")
+        private val IFRAME_B64_REGEX = Regex("""['"]iframe_url['"]\s*:\s*['"]([^'"]+)['"]""")
         private val IFRAME_OLID_REGEX = Regex("""var OLID = '([^']+)'""")
         private val IFRAME_OLID_URL = Regex("""realSrc *= *'([^']+)'""")
 
