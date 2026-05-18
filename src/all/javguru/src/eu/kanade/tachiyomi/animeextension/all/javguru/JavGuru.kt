@@ -241,13 +241,12 @@ class JavGuru :
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
-        val iframeData = document.selectFirst("script:containsData(iframe_url)")?.html()
-            ?: return emptyList()
-
-        val iframeUrls = IFRAME_B64_REGEX.findAll(iframeData)
+        val iframeUrls = document.select("script")
+            .flatMap { IFRAME_B64_REGEX.findAll(it.html()).toList() }
             .map { it.groupValues[1] }
             .map { Base64.decode(it, Base64.DEFAULT).let(::String) }
-            .toList()
+            .filter { it.startsWith("http") }
+            .distinct()
 
         return iframeUrls
             .mapNotNull(::resolveHosterUrl)
@@ -270,13 +269,13 @@ class JavGuru :
         val olid = IFRAME_OLID_REGEX.find(script)?.groupValues?.get(1)?.reversed()
             ?: return null
 
-        val olidUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
-            ?.toHttpUrlOrNull()
-            ?.newBuilder()
-            ?.setQueryParameter("td", olid)
-            ?.build()
-            ?.toString()
-            ?: return null
+        val srcUrl = IFRAME_OLID_URL.find(script)?.groupValues?.get(1)
+            ?.toHttpUrlOrNull() ?: return null
+        val paramName = srcUrl.queryParameterNames.firstOrNull() ?: return null
+        val olidUrl = srcUrl.newBuilder()
+            .setQueryParameter(paramName, olid)
+            .build()
+            .toString()
 
         val newHeaders = headersBuilder()
             .set("Referer", iframeUrl)
@@ -380,7 +379,7 @@ class JavGuru :
     companion object {
         const val PREFIX_ID = "id:"
 
-        private val IFRAME_B64_REGEX = Regex("""['"]iframe_url['"]\s*:\s*['"]([^'"]+)['"]""")
+        private val IFRAME_B64_REGEX = Regex("""['"]((aHR0cHM6|aHR0cDo)[A-Za-z0-9+/=]{10,})['"]""")
         private val IFRAME_OLID_REGEX = Regex("""var OLID = '([^']+)'""")
         private val IFRAME_OLID_URL = Regex("""realSrc *= *'([^']+)'""")
 
@@ -392,4 +391,5 @@ class JavGuru :
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-}
+    }
+    
